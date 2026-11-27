@@ -1,0 +1,71 @@
+# Push a tag like v0.2.0: tests run, the binaries are built and a GitHub release gets them attached.
+# "Run workflow" on the Actions page does the same without making a release.
+name: release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+          - os: windows-latest
+            file: vad.exe
+          - os: macos-latest # Apple Silicon
+            file: vad-macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup update stable && rustup default stable
+      - run: cargo test --release
+      - name: Build
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            sh build.sh
+          else
+            cargo build --release
+            mkdir dist
+            cp target/release/vad${{ runner.os == 'Windows' && '.exe' || '' }} dist/${{ matrix.file }}
+          fi
+      - name: Run the Linux binaries on a real recording (the ARM64 one in an emulator)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q qemu-user
+          curl -fsSL -o jfk.flac https://github.com/openai/whisper/raw/main/tests/jfk.flac
+          echo "63a4b1e4c1dc655ac70961ffbf518acd249df237e5a0152faae9a4a836949715  jfk.flac" | sha256sum -c
+          dist/vad.bin jfk.flac -o x64.wav
+          qemu-aarch64 dist/vad-arm64.bin jfk.flac -o arm64.wav
+          # 11 s of speech: each must keep more than 9 s (16 kHz, 2 bytes per sample)
+          for f in x64.wav arm64.wav; do [ "$(stat -c %s $f)" -gt 288000 ]; done
+          cmp x64.wav arm64.wav || echo "note: the two outputs differ in some bytes"
+      - name: Run the binary
+        if: runner.os != 'Linux'
+        run: dist/${{ matrix.file }} --help
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.os }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - run: cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
+      - run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

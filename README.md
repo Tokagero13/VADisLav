@@ -33,20 +33,24 @@ file itself.
 
 ## Get the binary
 
-Build it with [Rust](https://rustup.rs):
-
-```sh
-sh build.sh
-```
+Download it from the [releases page](../../releases):
 
 | File | Runs on |
 |---|---|
-| `dist/vad.bin` | Linux x86-64. Fully static: any distro, also an empty container. |
-| `dist/vad-arm64.bin` | Linux ARM64. Built the same way, but never run on real hardware. |
-| `dist/vad.exe` | Windows x86-64 (built only when `build.sh` runs on Windows). |
+| `vad.bin` | Linux x86-64. Fully static: any distro, also an empty container. |
+| `vad-arm64.bin` | Linux ARM64. Fully static; tested in an emulator only, not on real hardware. |
+| `vad.exe` | Windows x86-64. |
+| `vad-macos-arm64` | macOS on Apple Silicon. |
 
-The Linux binaries build from any OS, no C toolchain needed. For the machine you are on,
-`cargo build --release` is enough (macOS should work but is not tested).
+On Linux and macOS make it executable first: `chmod +x vad.bin`. `SHA256SUMS` in the release lists
+the checksums.
+
+Or build it with [Rust](https://rustup.rs): `sh build.sh` puts the Linux binaries (and, on Windows,
+`vad.exe`) into `dist/`. The Linux binaries build from any OS, no C toolchain needed. For the
+machine you are on, `cargo build --release` is enough.
+
+A new release is made by pushing a tag: `git tag v0.2.0 && git push origin v0.2.0`
+(`.github/workflows/release.yml` tests, builds and attaches the files).
 
 ## Speed and accuracy
 
