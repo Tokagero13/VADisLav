@@ -55,7 +55,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'push'
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -66,6 +66,7 @@ jobs:
           path: dist
           merge-multiple: true
       - run: cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
-      - run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+      # --verify-tag: never create the tag here, it would point at another commit than the one built
+      - run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
         env:
           GH_TOKEN: ${{ github.token }}

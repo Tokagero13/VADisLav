@@ -1,6 +1,6 @@
-# vad
+# VADisLav
 
-Cuts the silence out of a recording. Give it an audio or video file; it finds the speech, drops the
+`vad` cuts the silence out of a recording. Give it an audio or video file; it finds the speech, drops the
 gaps and writes the speech as one WAV file.
 
 One file of 2–3 MB, nothing to install: no ffmpeg, no model download, no network.
@@ -88,3 +88,8 @@ cargo test --release -- --include-ignored   # also decodes every sample and chec
 pwsh bench.ps1 a.webm b.mp4                 # time, CPU and peak memory per file (Windows)
 pwsh bench.ps1 a.webm -Hour                 # also one-hour versions in 5 formats (needs ffmpeg)
 ```
+
+## Licence
+
+[MIT](LICENSE). The binaries also contain Symphonia (MPL-2.0), libopus (BSD-3-Clause) and Earshot
+(MIT or Apache-2.0).
