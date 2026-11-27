@@ -1,0 +1,7 @@
+# No C code anywhere in the dependencies, so Rust's own linker can build the Linux binaries
+# from any OS. musl = fully static: the file runs on every Linux distro, also in an empty container.
+[target.x86_64-unknown-linux-musl]
+linker = "rust-lld"
+
+[target.aarch64-unknown-linux-musl]
+linker = "rust-lld"

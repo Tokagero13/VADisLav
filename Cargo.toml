@@ -1,0 +1,16 @@
+[package]
+name = "vad"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+earshot = "1"
+symphonia = { version = "0.6", default-features = false, features = ["aac", "adpcm", "alac", "flac", "mp1", "mp2", "mp3", "pcm", "vorbis", "caf", "isomp4", "mkv", "ogg", "aiff", "wav", "opt-simd"] }
+unsafe-libopus = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
