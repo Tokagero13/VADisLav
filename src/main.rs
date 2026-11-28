@@ -28,10 +28,12 @@ const QUIET_DB: f32 = -35.0; // recordings quieter than this are turned up to it
 
 const HELP: &str = "vad: cut the silence out of a recording
 
-usage: vad [--mp4] <input> [-o <output.wav>]
+usage: vad [--mp4] <input> [-o <output.wav>] [--json]
 
   <input>   any audio or video file: mp4, m4a, mov, mkv, webm, mp3, wav, flac, ogg, opus, aac, aiff, caf
   -o        where to write the result (default: <input>.vad.wav next to the input)
+  --json    print a report instead of the path: the files, the lengths and, for every kept piece,
+            where it is in the input (from, to) and in the output (at), as hours:minutes:seconds:milliseconds
 
 Writes 16 kHz mono 16-bit WAV with only the speech and prints its path.
 Pauses up to 0.64 s stay as they are, longer ones are cut down to that.
@@ -272,8 +274,59 @@ fn write_wav(path: &Path, pcm: &[i16], keep: &[bool]) -> std::io::Result<()> {
     w.flush()
 }
 
+/// The kept pieces, each as [first frame, frame after its last, its first frame in the output].
+fn segments(keep: &[bool]) -> Vec<[usize; 3]> {
+    let (mut out, mut pos, mut at) = (Vec::new(), 0, 0);
+    for run in keep.chunk_by(|a, b| a == b) {
+        if run[0] {
+            out.push([pos, pos + run.len(), at]);
+            at += run.len();
+        }
+        pos += run.len();
+    }
+    out
+}
+
+/// A position as hours:minutes:seconds:milliseconds. A frame is exactly 16 ms, so nothing is rounded.
+fn clock(frames: usize) -> String {
+    let ms = frames * FRAME * 1000 / RATE as usize;
+    format!("{:02}:{:02}:{:02}:{:03}", ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60, ms % 1000)
+}
+
+/// A JSON string. Windows paths are full of backslashes.
+fn quote(s: &str) -> String {
+    let mut out = String::from('"');
+    for c in s.chars() {
+        match c {
+            '"' | '\\' => out.extend(['\\', c]),
+            c if c < ' ' => out += &format!("\\u{:04x}", c as u32),
+            c => out.push(c),
+        }
+    }
+    out + "\""
+}
+
+/// The --json report. `output` is None when no speech was found and nothing was written.
+fn report(input: &Path, output: Option<&Path>, keep: &[bool]) -> String {
+    let segments = segments(keep);
+    let lines: Vec<String> = segments
+        .iter()
+        .map(|&[from, to, at]| format!("\n    {{\"from\": \"{}\", \"to\": \"{}\", \"at\": \"{}\"}}", clock(from), clock(to), clock(at)))
+        .collect();
+    format!(
+        "{{\n  \"version\": \"{}\",\n  \"input\": {},\n  \"output\": {},\n  \"duration\": \"{}\",\n  \"kept\": \"{}\",\n  \"segments\": [{}{}]\n}}",
+        env!("CARGO_PKG_VERSION"),
+        quote(&input.display().to_string()),
+        output.map_or("null".into(), |o| quote(&o.display().to_string())),
+        clock(keep.len()),
+        clock(segments.iter().map(|s| s[1] - s[0]).sum()),
+        lines.join(","),
+        if lines.is_empty() { "" } else { "\n  " }
+    )
+}
+
 fn run() -> Result<i32, String> {
-    let (mut input, mut output) = (None::<PathBuf>, None::<PathBuf>);
+    let (mut input, mut output, mut json) = (None::<PathBuf>, None::<PathBuf>, false);
     let mut args = env::args_os().skip(1);
     while let Some(a) = args.next() {
         match a.to_str() {
@@ -282,6 +335,7 @@ fn run() -> Result<i32, String> {
                 return Ok(0);
             }
             Some("-o" | "--out") => output = Some(args.next().ok_or("-o needs a file name")?.into()),
+            Some("--json") => json = true,
             // `--mp4 file.mp4`, `--audio file.mp3`: the flag only says what follows, the format is detected
             Some(flag) if flag.starts_with('-') && flag.len() > 1 => {}
             _ if input.is_none() => input = Some(a.into()),
@@ -304,6 +358,9 @@ fn run() -> Result<i32, String> {
     let kept = keep.iter().filter(|&&k| k).count();
     if kept == 0 {
         eprintln!("vad: no speech found in {:.1} s of audio; nothing written", secs(keep.len()));
+        if json {
+            println!("{}", report(&input, None, &keep));
+        }
         return Ok(2);
     }
     write_wav(&output, &pcm, &keep).map_err(|e| format!("cannot write {}: {e}", output.display()))?;
@@ -316,7 +373,11 @@ fn run() -> Result<i32, String> {
         (detected - decoded).as_secs_f32(),
         detected.elapsed().as_secs_f32()
     );
-    println!("{}", output.display());
+    if json {
+        println!("{}", report(&input, Some(&output), &keep));
+    } else {
+        println!("{}", output.display());
+    }
     Ok(0)
 }
 
@@ -348,6 +409,24 @@ mod tests {
         scores[20..20 + 2 * PAD - 1].fill(0.0);
         assert!(keep(&scores).iter().all(|&k| k));
         assert!(keep(&[]).is_empty());
+    }
+
+    #[test]
+    fn report_says_where_each_kept_piece_is_in_the_input_and_in_the_output() {
+        let mut keep = vec![false; 4100];
+        keep[0..50].fill(true);
+        keep[3971..4000].fill(true);
+        assert_eq!(segments(&keep), [[0, 50, 0], [3971, 4000, 50]]);
+        assert_eq!(clock(3971), "00:01:03:536");
+        assert_eq!(clock(225_000), "01:00:00:000");
+        assert_eq!(quote("C:\\a \"b\"\n"), r#""C:\\a \"b\"\u000a""#);
+
+        let r = report(Path::new("C:\\in.mp4"), Some(Path::new("out.wav")), &keep);
+        assert!(r.contains(r#""input": "C:\\in.mp4""#) && r.contains(r#""output": "out.wav""#), "{r}");
+        assert!(r.contains(r#""duration": "00:01:05:600""#) && r.contains(r#""kept": "00:00:01:264""#), "{r}");
+        assert!(r.contains(r#"{"from": "00:01:03:536", "to": "00:01:04:000", "at": "00:00:00:800"}"#), "{r}");
+        let none = report(Path::new("in.mp4"), None, &[false; 9]);
+        assert!(none.contains(r#""output": null"#) && none.contains(r#""segments": []"#), "{none}");
     }
 
     #[test]

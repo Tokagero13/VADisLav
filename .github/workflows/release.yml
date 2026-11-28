@@ -40,7 +40,7 @@ jobs:
           sudo apt-get update -q && sudo apt-get install -y -q qemu-user
           curl -fsSL -o jfk.flac https://github.com/openai/whisper/raw/main/tests/jfk.flac
           echo "63a4b1e4c1dc655ac70961ffbf518acd249df237e5a0152faae9a4a836949715  jfk.flac" | sha256sum -c
-          dist/vad.bin jfk.flac -o x64.wav
+          dist/vad.bin jfk.flac -o x64.wav --json | python3 -m json.tool
           qemu-aarch64 dist/vad-arm64.bin jfk.flac -o arm64.wav
           # 11 s of speech: each must keep more than 9 s (16 kHz, 2 bytes per sample)
           for f in x64.wav arm64.wav; do [ "$(stat -c %s $f)" -gt 288000 ]; done

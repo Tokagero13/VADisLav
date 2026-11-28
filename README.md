@@ -1,7 +1,16 @@
 # VADisLav
 
-`vad` cuts the silence out of a recording. Give it an audio or video file; it finds the speech, drops the
-gaps and writes the speech as one WAV file.
+A tool for one task: prepare a recording for speech recognition. `vad` takes an audio or video
+file, finds the speech, drops the gaps and writes the speech as one WAV file, with a report of
+where every kept piece came from.
+
+Why do this before transcribing:
+
+- **Fewer invented words.** Whisper and similar models tend to make up text on long silence, noise
+  and hold music ("Thank you for watching", the last phrase repeated). Audio that is not sent
+  cannot be transcribed wrongly.
+- **Less to process.** A meeting is often one third silence: the upload is smaller and the
+  transcription faster and cheaper.
 
 One file of 2–3 MB, nothing to install: no ffmpeg, no model download, no network.
 
@@ -10,6 +19,7 @@ One file of 2–3 MB, nothing to install: no ffmpeg, no model download, no netwo
 ```sh
 vad meeting.mp4                  # writes meeting.vad.wav next to the input
 vad meeting.webm -o speech.wav   # choose where to write
+vad meeting.mp4 --json           # also report where every kept piece is, see below
 ```
 
 ```
@@ -30,6 +40,42 @@ The summary goes to stderr and the path of the result to stdout, so a script can
 
 A flag such as `--mp4` before the file name is accepted and ignored: the format is detected from the
 file itself.
+
+## With Whisper
+
+```sh
+vad meeting.mp4 --json > meeting.json    # writes meeting.vad.wav, the report goes to meeting.json
+
+whisper-cli -m ggml-large-v3-turbo.bin -f meeting.vad.wav          # whisper.cpp, or
+curl "$SERVER/v1/audio/transcriptions" -H "Authorization: Bearer $KEY" \
+     -F model=whisper-1 -F response_format=verbose_json -F file=@meeting.vad.wav
+```
+
+Whisper's times now refer to the trimmed file. The report says how to get back to the original:
+
+```json
+{
+  "version": "0.2.0",
+  "input": "mlk.flac",
+  "output": "mlk.vad.wav",
+  "duration": "00:00:12:992",
+  "kept": "00:00:10:016",
+  "segments": [
+    {"from": "00:00:00:848", "to": "00:00:02:784", "at": "00:00:00:000"},
+    {"from": "00:00:03:392", "to": "00:00:05:056", "at": "00:00:01:936"},
+    {"from": "00:00:06:048", "to": "00:00:09:312", "at": "00:00:03:600"},
+    {"from": "00:00:09:840", "to": "00:00:12:992", "at": "00:00:06:864"}
+  ]
+}
+```
+
+Times are `hours:minutes:seconds:milliseconds`. Each piece was taken from `from`–`to` in the input
+and starts at `at` in the output. To place a time from Whisper in the original recording, take the
+last piece whose `at` is not after it and add the difference to `from`: 4.0 s in the trimmed file
+falls in the third piece (`at` 3.6 s), so it is 6.048 + (4.0 − 3.6) = 6.448 s in the original.
+
+With `--json` the report replaces the path on stdout. When no speech is found, `output` is `null`,
+`segments` is empty and the exit code is still `2`.
 
 ## Get the binary
 
@@ -66,6 +112,8 @@ Measured on an Intel i5-13600KF, one thread:
 - AAC with more than 2 channels (5.1 film sound) cannot be decoded: convert it to stereo first.
 - Music without speech is about half kept. The tool is meant for speech recordings.
 - The output is always WAV, and there are no options for thresholds.
+- Whether it reduces invented words on your recordings was not measured here; it removes the
+  silence they usually appear in.
 
 ## How it works
 
