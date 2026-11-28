@@ -178,7 +178,9 @@ fn decode(path: &Path) -> Result<Vec<i16>, String> {
     while let Some(p) = next(&mut format) {
         let buf = match dec.decode(&p) {
             Ok(buf) => buf,
-            Err(Error::DecodeError(_)) => continue, // a damaged packet
+            // shortcut: a damaged packet is dropped, so everything after it is reported about 20 ms early
+            // per packet; put silence of the packet's length in its place if damaged files matter
+            Err(Error::DecodeError(_)) => continue,
             Err(e) => {
                 eprintln!("vad: decoding stopped early ({e}); using what could be read");
                 break;
@@ -289,7 +291,7 @@ fn segments(keep: &[bool]) -> Vec<[usize; 3]> {
 
 /// A position as hours:minutes:seconds:milliseconds. A frame is exactly 16 ms, so nothing is rounded.
 fn clock(frames: usize) -> String {
-    let ms = frames * FRAME * 1000 / RATE as usize;
+    let ms = frames * (FRAME * 1000 / RATE as usize); // in this order it also fits 32-bit systems
     format!("{:02}:{:02}:{:02}:{:03}", ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60, ms % 1000)
 }
 
@@ -334,7 +336,8 @@ fn run() -> Result<i32, String> {
                 println!("{HELP}");
                 return Ok(0);
             }
-            Some("-o" | "--out") => output = Some(args.next().ok_or("-o needs a file name")?.into()),
+            // `-o --json` would otherwise write to a file called --json
+            Some("-o" | "--out") => output = Some(args.next().filter(|v| !v.to_string_lossy().starts_with('-')).ok_or("-o needs a file name")?.into()),
             Some("--json") => json = true,
             // `--mp4 file.mp4`, `--audio file.mp3`: the flag only says what follows, the format is detected
             Some(flag) if flag.starts_with('-') && flag.len() > 1 => {}
