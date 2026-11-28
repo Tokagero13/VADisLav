@@ -150,7 +150,7 @@ Or build them with [Rust](https://rustup.rs):
   binary), then `cargo build --release --features noise` or `sh build.sh`. Its Linux builds need
   clang and llvm-ar.
 
-A new release is made by pushing a tag: `git tag v0.3.0 && git push origin v0.3.0`
+A new release is made by pushing a tag: `git tag v0.4.0 && git push origin v0.4.0`
 (`.github/workflows/release.yml` tests, builds and attaches the files).
 
 ## Speed and accuracy
