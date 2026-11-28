@@ -10,6 +10,7 @@ param(
     [string]$WorkDir = (Join-Path ([IO.Path]::GetTempPath()) 'vad-bench')
 )
 $ErrorActionPreference = 'Stop'
+$Vad = (Resolve-Path $Vad).Path # the process is started by .NET, which does not know PowerShell's current folder
 New-Item -ItemType Directory -Force $WorkDir | Out-Null
 $out = Join-Path $WorkDir 'out.wav'
 

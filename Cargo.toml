@@ -1,6 +1,6 @@
 [package]
 name = "vad"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "MIT"
 
@@ -8,6 +8,18 @@ license = "MIT"
 earshot = "1"
 symphonia = { version = "0.6", default-features = false, features = ["aac", "adpcm", "alac", "flac", "mp1", "mp2", "mp3", "pcm", "vorbis", "caf", "isomp4", "mkv", "ogg", "aiff", "wav", "opt-simd"] }
 unsafe-libopus = "0.2"
+# only the noise tool needs these: they run its sound-naming model
+tract-onnx = { version = "0.23", optional = true }
+rustfft = { version = "6", optional = true }
+
+[features]
+noise = ["dep:tract-onnx", "dep:rustfft"]
+
+# `cargo build --release` builds only vad; the noise tool needs `--features noise` and `sh models/fetch.sh`
+[[bin]]
+name = "noise"
+path = "src/bin/noise.rs"
+required-features = ["noise"]
 
 [profile.release]
 opt-level = 3

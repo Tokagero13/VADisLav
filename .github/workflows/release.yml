@@ -1,4 +1,4 @@
-# Push a tag like v0.2.0: tests run, the binaries are built and a GitHub release gets them attached.
+# Push a tag like v0.3.0: tests run, the binaries are built and a GitHub release gets them attached.
 # "Run workflow" on the Actions page does the same without making a release.
 name: release
 on:
@@ -17,27 +17,35 @@ jobs:
         include:
           - os: ubuntu-latest
           - os: windows-latest
-            file: vad.exe
+            suffix: .exe
           - os: macos-latest # Apple Silicon
-            file: vad-macos-arm64
+            suffix: -macos-arm64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - run: rustup update stable && rustup default stable
-      - run: cargo test --release
+      - name: Download the sound model that noise is built with
+        run: sh models/fetch.sh
+      - name: Test
+        run: |
+          cargo test --release --features noise
+          # the model must give the reference implementation's answers on this system too
+          cargo test --release --features noise --bin noise -- --ignored matches_the_reference
       - name: Build
         run: |
           if [ "$RUNNER_OS" = Linux ]; then
+            sudo apt-get update -q && sudo apt-get install -y -q clang llvm qemu-user
             sh build.sh
           else
-            cargo build --release
+            cargo build --release --features noise
             mkdir dist
-            cp target/release/vad${{ runner.os == 'Windows' && '.exe' || '' }} dist/${{ matrix.file }}
+            for tool in vad noise; do
+              cp target/release/$tool${{ runner.os == 'Windows' && '.exe' || '' }} dist/$tool${{ matrix.suffix }}
+            done
           fi
-      - name: Run the Linux binaries on a real recording (the ARM64 one in an emulator)
+      - name: Run the Linux binaries on real recordings (the ARM64 ones in an emulator)
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update -q && sudo apt-get install -y -q qemu-user
           curl -fsSL -o jfk.flac https://github.com/openai/whisper/raw/main/tests/jfk.flac
           echo "63a4b1e4c1dc655ac70961ffbf518acd249df237e5a0152faae9a4a836949715  jfk.flac" | sha256sum -c
           dist/vad.bin jfk.flac -o x64.wav --json | python3 -m json.tool
@@ -45,9 +53,16 @@ jobs:
           # 11 s of speech: each must keep more than 9 s (16 kHz, 2 bytes per sample)
           for f in x64.wav arm64.wav; do [ "$(stat -c %s $f)" -gt 288000 ]; done
           cmp x64.wav arm64.wav || echo "note: the two outputs differ in some bytes"
-      - name: Run the binary
+          # a cat meowing: both builds of noise must name it
+          dist/noise.bin tests/samples/ced/1.wav -o cat.wav --json > cat.json
+          python3 -m json.tool cat.json
+          grep '"Cat"' cat.json
+          qemu-aarch64 dist/noise-arm64.bin tests/samples/ced/1.wav -o cat.wav --json | grep '"Cat"'
+      - name: Run the binaries
         if: runner.os != 'Linux'
-        run: dist/${{ matrix.file }} --help
+        run: |
+          dist/vad${{ matrix.suffix }} --help
+          dist/noise${{ matrix.suffix }} tests/samples/ced/1.wav -o cat.wav --json | grep '"Cat"'
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.os }}
